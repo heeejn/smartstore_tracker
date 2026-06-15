@@ -665,7 +665,7 @@ function renderInsights(){
     if(p.price>avgPrice*1.5) badges_arr.push('프리미엄 판매력');
     premiumCards.push({severity:'success',badges:badges_arr,icon:rank,
       title:p.name,
-      body:`<strong style="color:${dc(p.dealer)}">${p.dealer}</strong> · <strong>${fmtP(p.price)}</strong> (평균가 대비 <strong class="ig-up">${priceRatio}배</strong>)<br>${statBar(p)} · 가격 저항력 높음`,
+      body:`<strong style="color:${dc(p.dealer)}">${p.dealer}</strong> · <strong>${fmtP(p.price)}</strong> (평균가 대비 <strong class="ig-up">${priceRatio}배</strong>)<br>${statBar(p)}`,
       product:p});
   });
 

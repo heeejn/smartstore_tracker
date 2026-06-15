@@ -319,11 +319,6 @@
   <!-- 일별 추이 -->
   <div class="panel" id="panel-trend">
     <div class="toolbar">
-      <span class="tlabel">기준</span>
-      <div class="tg">
-        <button class="tb active" id="td-month" onclick="setTDMode('month')">월별</button>
-        <button class="tb" id="td-week" onclick="setTDMode('week')">주별</button>
-      </div>
       <select class="sel" id="trend-ym" onchange="renderTrend()"></select>
       <span class="tlabel">업체</span>
       <div id="td-filters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
@@ -517,7 +512,6 @@ function setPDMode(m){
 }
 function setTDMode(m){
   tdViewMode=m;
-  ['month','week'].forEach(x=>document.getElementById('td-'+x).classList.toggle('active',x===m));
   updatePeriodSelect('trend-ym',m);
   renderTrend();
 }
@@ -596,11 +590,13 @@ function renderInsights(){
       ?`<img src="${ins.product.image}" alt="" onerror="this.style.display='none';this.nextSibling.style.display='flex'"><span style="display:none;align-items:center;justify-content:center;width:100%;height:100%;font-size:18px">📟</span>`
       :`<span>📟</span>`}</div>`:'';
     const badges=(ins.badges||[ins.badge]).map(b=>`<span class="ig-badge ig-badge-${ins.severity}">${b}</span>`).join(' ');
-    return `<div class="ig-card ig-${ins.severity}">
+    const url=ins.product&&ins.product.url?ins.product.url:'';
+    const clickAttr=url?` onclick="window.open('${url}','_blank')" style="cursor:pointer"`:'';
+    return `<div class="ig-card ig-${ins.severity}"${clickAttr}>
       <div class="ig-card-header">
         <span class="ig-card-icon">${ins.icon}</span>
         <span class="ig-card-title">${ins.title}</span>
-        <span style="margin-left:auto;display:flex;gap:4px;align-items:center;">${badges}</span>
+        <span style="margin-left:auto;display:flex;gap:4px;align-items:center;">${badges}${url?'<span style="font-size:10px;color:var(--muted);margin-left:2px">↗</span>':''}</span>
       </div>
       <div class="ig-card-body">${thumb}<p class="ig-text">${ins.body}</p></div>
     </div>`;

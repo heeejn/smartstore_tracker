@@ -52,8 +52,8 @@
   .fb{padding:3px 8px;border-radius:3px;font-size:10px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--muted);transition:all .1s;white-space:nowrap;}
   .fb.active,.fb:hover{background:var(--accent);border-color:var(--accent);color:#fff;}
   .month-toggle{display:flex;flex-wrap:wrap;gap:3px;}
-  .mtb{padding:2px 7px;border-radius:3px;font-size:10px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--muted);transition:all .1s;}
-  .mtb.active{border-color:currentColor;background:transparent;}
+  .mtb{padding:2px 7px;border-radius:3px;font-size:10px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--muted);transition:all .15s;opacity:.35;}
+  .mtb.active{border-color:currentColor;background:transparent;opacity:1;}
   /* 업체별·상품별·추이 탭 툴바: 폰트 크게 */
   #panel-dealer .toolbar .tlabel,#panel-products .toolbar .tlabel,#panel-trend .toolbar .tlabel{font-size:13px;}
   #panel-dealer .toolbar .tb,#panel-products .toolbar .tb,#panel-trend .toolbar .tb{font-size:12px;padding:5px 13px;}
@@ -784,7 +784,7 @@ function setDP(p){
   renderDealerChart();
 }
 function toggleMonth(m){
-  const months=[...new Set(D.products.map(p=>p.month))].sort();
+  const months=D.monthlyStats.map(s=>s.month).sort();
   const color=mc(m,months);
   if(selMonths.has(m)&&selMonths.size>1){
     selMonths.delete(m);
@@ -806,34 +806,71 @@ function toggleMonth(m){
 function renderDealerChart(){
   if(!D)return;
   const {monthlyStats,dealerStats}=D;
-  const allMonths=[...new Set(D.products.map(p=>p.month))].sort();
+  const allMonths=monthlyStats.map(s=>s.month).sort();
   const filteredMonths=allMonths.filter(m=>selMonths.has(m));
   const dealers=dealerStats.map(d=>d.dealer);
-  const pLabel=dPeriod==='week'?'주 판매량':'월 판매량';
 
-  // ── 왼쪽: 꺾은선 (월 기준 × 업체) ──
-  document.getElementById('d-chart-title-line').textContent=`월별 ${pLabel} 추이`;
-  const lineSeries=dealers.map(dealer=>({
-    name:dealer, color:dc(dealer),
-    values:filteredMonths.map(m=>{
-      const ms=monthlyStats.find(s=>s.month===m);
-      return ms?(ms.byDealer[dealer]||0):0;
-    })
-  }));
-  document.getElementById('d-chart-line').innerHTML=lineChartSVG(filteredMonths,lineSeries);
-  document.getElementById('d-legend-line').innerHTML=legendH(dealers,dealers.map(dc));
+  if(dPeriod==='week'){
+    // ── 주별: dailyHistory에서 주차별 합산 ──
+    const weekMap={}; // "2026-W01" -> { dealer -> sum }
+    if(D.dailyHistory){
+      Object.entries(D.dailyHistory).forEach(([url,dates])=>{
+        const snap=D.products.find(p=>p.url===url);
+        if(!snap) return;
+        const dealer=snap.dealer;
+        Object.entries(dates).forEach(([date,{today}])=>{
+          if(!filteredMonths.includes(date.substring(0,7))) return;
+          const wk=getWeekStart(date);
+          if(!weekMap[wk]) weekMap[wk]={};
+          weekMap[wk][dealer]=(weekMap[wk][dealer]||0)+(today||0);
+        });
+      });
+    }
+    const weeks=Object.keys(weekMap).sort();
+    const weekLabels=weeks.map(w=>{ const d=new Date(w+'T12:00:00'); return `${d.getMonth()+1}/${d.getDate()}주`; });
 
-  // ── 오른쪽: 그룹 바 (업체 기준 × 월) ──
-  document.getElementById('d-chart-title-bar').textContent=`업체별 ${pLabel} 비교`;
-  const barSeries=filteredMonths.map(m=>({
-    name:m, color:mc(m,allMonths),
-    values:dealers.map(dealer=>{
-      const ms=monthlyStats.find(s=>s.month===m);
-      return ms?(ms.byDealer[dealer]||0):0;
-    })
-  }));
-  document.getElementById('d-chart-bar').innerHTML=groupedBarSVG(dealers,barSeries);
-  document.getElementById('d-legend-bar').innerHTML=legendH(filteredMonths,filteredMonths.map(m=>mc(m,allMonths)));
+    document.getElementById('d-chart-title-line').textContent='주차별 판매량 추이';
+    const lineSeries=dealers.map(dealer=>({
+      name:dealer, color:dc(dealer),
+      values:weeks.map(w=>weekMap[w][dealer]||0)
+    }));
+    document.getElementById('d-chart-line').innerHTML=lineChartSVG(weekLabels,lineSeries);
+    document.getElementById('d-legend-line').innerHTML=legendH(dealers,dealers.map(dc));
+
+    document.getElementById('d-chart-title-bar').textContent='업체별 주차 판매량 비교';
+    const recentWeeks=weeks.slice(-4);
+    const recentLabels=recentWeeks.map(w=>{ const d=new Date(w+'T12:00:00'); return `${d.getMonth()+1}/${d.getDate()}주`; });
+    const barSeries=recentWeeks.map((w,i)=>({
+      name:recentLabels[i], color:MCOLS[i%MCOLS.length],
+      values:dealers.map(dealer=>weekMap[w][dealer]||0)
+    }));
+    document.getElementById('d-chart-bar').innerHTML=groupedBarSVG(dealers,barSeries);
+    document.getElementById('d-legend-bar').innerHTML=legendH(recentLabels,recentWeeks.map((_,i)=>MCOLS[i%MCOLS.length]));
+
+  } else {
+    // ── 월별: monthlyStats 합산 ──
+    document.getElementById('d-chart-title-line').textContent='월별 판매량 추이';
+    const lineSeries=dealers.map(dealer=>({
+      name:dealer, color:dc(dealer),
+      values:filteredMonths.map(m=>{
+        const ms=monthlyStats.find(s=>s.month===m);
+        return ms?(ms.byDealer[dealer]||0):0;
+      })
+    }));
+    document.getElementById('d-chart-line').innerHTML=lineChartSVG(filteredMonths,lineSeries);
+    document.getElementById('d-legend-line').innerHTML=legendH(dealers,dealers.map(dc));
+
+    document.getElementById('d-chart-title-bar').textContent='업체별 월 판매량 비교';
+    const barSeries=filteredMonths.map(m=>({
+      name:m, color:mc(m,allMonths),
+      values:dealers.map(dealer=>{
+        const ms=monthlyStats.find(s=>s.month===m);
+        return ms?(ms.byDealer[dealer]||0):0;
+      })
+    }));
+    document.getElementById('d-chart-bar').innerHTML=groupedBarSVG(dealers,barSeries);
+    document.getElementById('d-legend-bar').innerHTML=legendH(filteredMonths,filteredMonths.map(m=>mc(m,allMonths)));
+  }
 }
 
 function legendH(labels,colors){
@@ -846,9 +883,13 @@ function lineChartSVG(xLabels, series){
   const allVals=series.flatMap(s=>s.values);
   const maxVal=Math.max(...allVals,1);
 
-  const padL=36,padR=10,padT=16,padB=20;
-  const chartH=120, chartW=Math.max(xLabels.length*72,260);
-  const W=padL+chartW+padR, H=padT+chartH+padB;
+  const BAR_REF_W=580, BAR_FS=10; // bar chart 기준값
+  const chartW=Math.max(xLabels.length*60,260);
+  const W0=38+chartW+10;
+  const FS=Math.max(6,Math.round(BAR_FS*W0/BAR_REF_W)); // bar chart와 동일한 렌더 크기
+  const padL=38,padR=10,padT=12,padB=FS*2+8;
+  const W=W0, H=Math.round(W*0.51);
+  const chartH=Math.max(80, H-padT-padB);
 
   const tickCount=5;
   const rawStep=maxVal/tickCount;
@@ -857,19 +898,19 @@ function lineChartSVG(xLabels, series){
   const yMax=tickStep*tickCount;
   const ticks=Array.from({length:tickCount+1},(_,i)=>i*tickStep);
 
-  let svg=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:${W}px">`;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%">`;
 
   // 그리드 + Y축 라벨
   ticks.forEach(v=>{
     const y=padT+chartH-(v/yMax)*chartH;
     svg+=`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#2e3250" stroke-width="1" stroke-dasharray="3,3"/>`;
-    svg+=`<text x="${padL-5}" y="${y+3}" text-anchor="end" font-size="6" fill="#6e7681" font-family="Inter">${fmt(v)}</text>`;
+    svg+=`<text x="${padL-5}" y="${y+FS*0.35}" text-anchor="end" font-size="${FS}" fill="#6e7681" font-family="Inter">${fmt(v)}</text>`;
   });
 
   // X축 라벨
   xLabels.forEach((label,xi)=>{
     const x=padL+(xLabels.length>1?(xi/(xLabels.length-1))*chartW:chartW/2);
-    svg+=`<text x="${x}" y="${H-3}" text-anchor="middle" font-size="6" fill="#6e7681" font-family="Noto Sans KR,sans-serif">${label}</text>`;
+    svg+=`<text x="${x}" y="${H-3}" text-anchor="middle" font-size="${FS}" fill="#6e7681" font-family="Noto Sans KR,sans-serif">${label}</text>`;
     svg+=`<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT+chartH}" stroke="#2e3250" stroke-width="0.5" stroke-dasharray="2,4"/>`;
   });
 

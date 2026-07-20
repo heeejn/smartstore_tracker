@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KCP POS+ 경쟁사 판매량 모니터링</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
   :root{
@@ -49,6 +50,8 @@
   .tb{padding:3px 9px;font-size:10px;font-weight:500;cursor:pointer;color:var(--muted);border:none;background:transparent;transition:all .1s;font-family:inherit;white-space:nowrap;}
   .tb.active{background:var(--accent);color:#fff;}
   select.sel{background:var(--bg);border:1px solid var(--border);color:var(--text);font-size:10px;padding:3px 6px;border-radius:4px;cursor:pointer;font-family:inherit;height:22px;}
+  input[type="date"].sel{background:var(--bg);border:1px solid var(--border);color:var(--text);font-size:10px;padding:3px 6px;border-radius:4px;font-family:inherit;height:22px;color-scheme:dark;}
+  input[type="date"].sel::-webkit-calendar-picker-indicator{filter:invert(0.6);cursor:pointer;}
   .fb{padding:3px 8px;border-radius:3px;font-size:10px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--muted);transition:all .1s;white-space:nowrap;}
   .fb.active,.fb:hover{background:var(--accent);border-color:var(--accent);color:#fff;}
   .month-toggle{display:flex;flex-wrap:wrap;gap:3px;}
@@ -180,7 +183,7 @@
   .trend-sl{color:var(--muted);}
   .trend-sv{font-family:'Inter';font-weight:600;color:var(--text);}
   /* 차트: 남은 공간 전부 사용 */
-  .trend-chart-col{flex:1;min-width:0;padding:6px 12px;height:96px;display:flex;align-items:center;}
+  .trend-chart-col{flex:1;min-width:0;padding:2px 8px;align-self:stretch;display:flex;align-items:center;}
 
   /* ── 로딩 ── */
   .loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;gap:10px;color:var(--muted);}
@@ -319,7 +322,13 @@
   <!-- 일별 추이 -->
   <div class="panel" id="panel-trend">
     <div class="toolbar">
-      <select class="sel" id="trend-ym" onchange="renderTrend()"></select>
+      <span class="tlabel">기간</span>
+      <input type="date" class="sel" id="trend-date-from" onchange="renderTrend()" style="width:130px">
+      <span class="tlabel" style="margin:0 2px">~</span>
+      <input type="date" class="sel" id="trend-date-to" onchange="renderTrend()" style="width:130px">
+      <select class="sel" id="trend-month-select" onchange="setTrendMonth(this.value)" style="width:110px">
+        <option value="">월 선택</option>
+      </select>
       <span class="tlabel">업체</span>
       <div id="td-filters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
       <span class="tlabel">정렬</span>
@@ -493,9 +502,27 @@ function init(){
     return `<button class="mtb active" id="mtb-${m}" style="color:${color};border-color:${color}" onclick="toggleMonth('${m}')">${m}</button>`;
   }).join('');
 
-  // 상품별/추이 period select 초기화
+  // 상품별 period select 초기화
   updatePeriodSelect('product-ym', pdViewMode);
-  updatePeriodSelect('trend-ym', tdViewMode);
+
+  // 추이 날짜 범위 초기화: 최근 30일
+  const allDatesForInit=[...new Set(Object.values(D.dailyHistory||{}).flatMap(h=>Object.keys(h)))].sort();
+  const latestDate=allDatesForInit[allDatesForInit.length-1]||new Date().toISOString().substring(0,10);
+  const fromDate=allDatesForInit.length>=30?allDatesForInit[allDatesForInit.length-30]:allDatesForInit[0]||latestDate;
+  const fromEl=document.getElementById('trend-date-from');
+  const toEl=document.getElementById('trend-date-to');
+  if(fromEl&&!fromEl.value){ fromEl.value=fromDate; }
+  if(toEl&&!toEl.value){ toEl.value=latestDate; }
+
+  // 추이 월별 빠른 선택 버튼
+  const trendMonths=[...new Set(allDatesForInit.map(d=>d.substring(0,7)))].sort();
+  const trendMonthSel=document.getElementById('trend-month-select');
+  if(trendMonthSel){
+    trendMonthSel.innerHTML=`<option value="">월 선택</option>`+trendMonths.map(m=>{
+      const [y,mo]=m.split('-');
+      return `<option value="${m}">${String(y).slice(2)}년 ${parseInt(mo)}월</option>`;
+    }).join('');
+  }
 
   // 업체 필터
   const dealers=D.dealerStats.map(d=>d.dealer);
@@ -513,7 +540,18 @@ function setPDMode(m){
 }
 function setTDMode(m){
   tdViewMode=m;
-  updatePeriodSelect('trend-ym',m);
+  renderTrend();
+}
+function setTrendMonth(m){
+  // 해당 월의 첫날~마지막날 (실제 수집된 날짜 기준)
+  const allDates=[...new Set(Object.values(D.dailyHistory||{}).flatMap(h=>Object.keys(h)))].sort();
+  const mDates=allDates.filter(d=>d.startsWith(m));
+  if(!mDates.length) return;
+  document.getElementById('trend-date-from').value=mDates[0];
+  document.getElementById('trend-date-to').value=mDates[mDates.length-1];
+  // 버튼 active 표시
+  const sel=document.getElementById('trend-month-select');
+  if(sel) sel.value=m;
   renderTrend();
 }
 
@@ -1188,29 +1226,33 @@ function setTSort(s){
   renderTrend();
 }
 function renderTrend(){
-  const period=document.getElementById('trend-ym').value;
-  if(!period) return;
+  const fromEl=document.getElementById('trend-date-from');
+  const toEl=document.getElementById('trend-date-to');
+  if(!fromEl||!toEl) return;
+  const fromVal=fromEl.value, toVal=toEl.value;
+  if(!fromVal||!toVal) return;
+  const dateFrom=fromVal, dateTo=toVal;
   const {products}=D;
 
   // 해당 기간에 데이터가 있는 상품 필터
   let list=products.filter(p=>{
     if(D.dailyHistory&&D.dailyHistory[p.url]){
       const dates=Object.keys(D.dailyHistory[p.url]);
-      if(tdViewMode==='week'){
-        const end=new Date(period+'T00:00:00'); end.setDate(end.getDate()+6);
-        const endStr=end.toISOString().substring(0,10);
-        return dates.some(d=>d>=period&&d<=endStr);
-      }
-      return dates.some(d=>d.startsWith(period));
+      return dates.some(d=>d>=dateFrom&&d<=dateTo);
     }
-    return productMonth(p)===period||p.month===period;
+    return false;
   });
   if(tdDealer!=='전체') list=list.filter(p=>p.dealer===tdDealer);
 
-  // stats + 정렬
+  // 기간 내 일 평균/합계 계산
   list=list.map(p=>{
-    const st=getStats(p.url,period,tdViewMode);
-    return {...p,_day:st.dayAvg,_week:st.weekAvg,_month:st.monthEst};
+    const hist=(D.dailyHistory&&D.dailyHistory[p.url])||{};
+    const rangeDates=Object.keys(hist).filter(d=>d>=dateFrom&&d<=dateTo).sort();
+    const total=rangeDates.reduce((s,d)=>s+(hist[d].today||0),0);
+    const dayAvg=rangeDates.length?total/rangeDates.length:0;
+    const days=(new Date(dateTo)-new Date(dateFrom))/86400000+1;
+    const monthEst=Math.round(dayAvg*30);
+    return {...p,_day:dayAvg,_week:dayAvg*7,_month:monthEst,_total:total};
   });
   if(tSort==='day')   list.sort((a,b)=>b._day-a._day);
   else if(tSort==='week')  list.sort((a,b)=>b._week-a._week);
@@ -1228,14 +1270,7 @@ function renderTrend(){
     const allHistDates=Object.keys(hist).sort();
 
     // 차트용 날짜 범위
-    let chartDates;
-    if(tdViewMode==='week'){
-      const end=new Date(period+'T00:00:00'); end.setDate(end.getDate()+6);
-      const endStr=end.toISOString().substring(0,10);
-      chartDates=allHistDates.filter(d=>d>=period&&d<=endStr);
-    } else {
-      chartDates=allHistDates.filter(d=>d.startsWith(period));
-    }
+    const chartDates=allHistDates.filter(d=>d>=dateFrom&&d<=dateTo);
 
     const chartPts=chartDates.length
       ? chartDates.map(d=>({date:d,val:hist[d].today||0}))
@@ -1265,15 +1300,17 @@ function renderTrend(){
 }
 
 function miniLine(pts,maxV,color){
-  const W=600,H=100,pL=6,pR=6,pT=22,pB=18;
-  const cW=W-pL-pR,cH=H-pT-pB;
+  // viewBox 비율을 컨테이너(약 11:1)에 맞춰 왜곡 최소화
+  const VW=1000,VH=90,pL=8,pR=8,pT=14,pB=18;
+  const cW=VW-pL-pR,cH=VH-pT-pB;
   const n=pts.length;
   if(!n)return '';
   const xOf=i=>pL+(n>1?(i/(n-1))*cW:cW/2);
   const yOf=v=>pT+cH-(v/maxV)*cH;
   const coords=pts.map((d,i)=>({x:xOf(i),y:yOf(d.val),val:d.val,date:d.date}));
+  const labelStep=n>60?7:n>30?3:n>14?2:1;
 
-  let svg=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:${H}px;display:block">`;
+  let svg=`<svg viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" style="width:100%;height:100%;display:block">`;
   if(n>1){
     let area=`M ${coords[0].x} ${pT+cH}`;
     coords.forEach(c=>area+=` L ${c.x} ${c.y}`);
@@ -1281,35 +1318,25 @@ function miniLine(pts,maxV,color){
     svg+=`<path d="${area}" fill="${color}" opacity="0.12"/>`;
     let line=`M ${coords[0].x} ${coords[0].y}`;
     coords.slice(1).forEach(c=>line+=` L ${c.x} ${c.y}`);
-    svg+=`<path d="${line}" stroke="${color}" stroke-width="2" fill="none"/>`;
+    svg+=`<path d="${line}" stroke="${color}" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
-  // 포인트
   coords.forEach(c=>{
-    svg+=`<circle cx="${c.x}" cy="${c.y}" r="4" fill="${color}" stroke="#0d1117" stroke-width="1.5"><title>${c.date}: ${fmt(c.val)}</title></circle>`;
+    svg+=`<circle cx="${c.x}" cy="${c.y}" r="3" fill="${color}" stroke="#0d1117" stroke-width="1.5"><title>${c.date}: ${fmt(c.val)}</title></circle>`;
   });
-  // 숫자 라벨: 첫 점→오른쪽, 마지막 점→왼쪽, 중간→위. 어두운 테두리로 가독성 확보
-  const r=4;
   coords.forEach((c,i)=>{
     if(!c.val) return;
     let tx,ty,anchor;
-    if(i===0&&n>1){
-      tx=c.x+r+4; ty=c.y+4; anchor='start';
-    } else if(i===n-1){
-      tx=c.x-r-4; ty=c.y+4; anchor='end';
-    } else {
-      tx=c.x; ty=Math.max(c.y-r-4, pT+13); anchor='middle';
-    }
-    svg+=`<text x="${tx}" y="${ty}" text-anchor="${anchor}" font-size="13" fill="${color}" font-weight="700" font-family="Inter" paint-order="stroke" stroke="#0d1117" stroke-width="3" stroke-linejoin="round">${fmt(c.val)}</text>`;
+    if(i===0&&n>1){ tx=c.x+6; ty=c.y+4; anchor='start'; }
+    else if(i===n-1){ tx=c.x-6; ty=c.y+4; anchor='end'; }
+    else { tx=c.x; ty=Math.max(c.y-6,pT+10); anchor='middle'; }
+    svg+=`<text x="${tx}" y="${ty}" text-anchor="${anchor}" font-size="10" fill="${color}" font-weight="700" font-family="Inter" paint-order="stroke" stroke="#0d1117" stroke-width="2.5" stroke-linejoin="round">${fmt(c.val)}</text>`;
   });
-  // 날짜 라벨 (요일 포함)
-  if(n<=10){
-    coords.forEach(c=>{
-      svg+=`<text x="${c.x}" y="${H-2}" text-anchor="middle" font-size="10" fill="#6e7681" font-family="Inter">${fmtDateLabel(c.date)}</text>`;
-    });
-  } else {
-    svg+=`<text x="${coords[0].x}" y="${H-2}" font-size="10" fill="#6e7681" font-family="Inter">${fmtDateLabel(coords[0].date)}</text>`;
-    if(n>1) svg+=`<text x="${coords[n-1].x}" y="${H-2}" text-anchor="end" font-size="10" fill="#6e7681" font-family="Inter">${fmtDateLabel(coords[n-1].date)}</text>`;
-  }
+  const dateLabelStep=n>30?7:n>14?3:1;
+  coords.forEach((c,i)=>{
+    if(i!==0&&i!==n-1&&i%dateLabelStep!==0) return;
+    const anchor=i===0?'start':i===n-1?'end':'middle';
+    svg+=`<text x="${c.x}" y="${VH-2}" text-anchor="${anchor}" font-size="10" fill="#6e7681" font-family="Inter">${fmtDateLabel(c.date)}</text>`;
+  });
   svg+=`</svg>`;
   return svg;
 }
